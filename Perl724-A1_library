@@ -1,0 +1,127 @@
+#This is the subroutine library for Assignment 1 for BIF724. 
+#Lauren Caldwell, 023846157
+#Due Feb 22 2016
+# I declare that the attached assignment is wholly my own work in accordance with
+# Seneca Academic Policy. No part of this assignment has been copied manually or
+# electronically from any other source (including web sites) or distributed to other students.
+# Name:Lauren Caldwell
+# ID:023846157
+
+
+#This subroutine accepts three variables used in formatting an html page and then prints
+#the essential components of the beginning of the document. 
+sub html_top_special{
+    my $name = shift @_; #will take first value. 
+    my $header_of_page = shift @_; #take next one.
+    my $css_file = shift @_; #take third one. 
+    return<<TOP;
+    <!DOCTYPE html>
+<html>
+	<head>
+		<title>$name</title><link rel="stylesheet" type="text/css" href="$css_file"> 
+	</head>
+        <h1 style="text-align:center">$header_of_page</h1> 
+	<body>	
+TOP
+}
+
+#This sub prints the top of the html page and accepts two variables (page header and page title).
+sub html_top {
+    my $name = shift@_;
+    my $header_of_page = shift @_;
+    return<<TOP;
+    <!DOCTYPE html>
+<html>
+    <head>
+        <title>$name</title>
+    </head>
+        <h1 style="text-align:center">$header_of_page</h1>
+    <body>
+TOP
+}
+#This subroutine prints the bottom portion of an html page. 
+sub html_bottom{
+    return<<BOTTOM;
+    </body>
+</html>
+BOTTOM
+}
+
+
+#This subroutine is used in case of an error occurring on the add page. 
+sub html_fail{
+    return<<FAIL;
+    <h2>Failure: An error occurred. </h2>
+FAIL
+}
+
+#This subroutine prints the buttons that are used on all 3 of the webpages in this assignment. 
+sub button_printer {
+    return<<BUTTONS;
+<div id="wrapper" style="text-align: center">    
+    <form action="https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_add.cgi">
+        <input type="submit" value="Add Data to RE1 Database">
+    </form>
+    <form action="https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_view.cgi">
+        <input type="submit" value="View All Data">
+    </form>
+    <form action="https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_upload.cgi">
+        <input type="submit" value="Upload a File">
+    </form>
+</div>
+BUTTONS
+}
+
+
+#Validation Subroutines: Separate for each field instead of one large validation subroutine because it was easier to test and understand. Did not have time to change it back into one subroutine. 
+sub id_valid{ 
+    my $re1_id = shift;
+    if ($re1_id !~ /^((opossum|human|rat|xenopus|chicken)_42_[0-9]{1,2}[a-z]?_([1-9]|([1-9]?[0-9]?)|(10[0-9]?)|W|X|Y|Z|scaffold_[0-9]{1,7})_[0-9]{1,9}_(f|r))$/) { #check re1_id for errors
+        return 0;_
+    }else{
+        return 1;
+    }
+}
+sub score_valid{ 
+    my $score = shift;
+    if ($score !~ /^[1]|0\.[0-9]{1,4}$/) { #check score for errors
+        return 0;
+    }else{
+        return 1;
+    }
+}
+sub score_allowed{
+    my $score = shift;
+    if ($score < 0.91 || $score > 1) { #Check if score is in allowed range. 
+        return 0;
+    }else{
+        return 1;
+    }
+}
+sub target_valid{
+    my $target_gene_id = shift;
+    if ($target_gene_id !~ /^([E][N][S])([G]|[A-Z]{3}[G]{1})[0-9]{11}$/) { #check target gene id for errors.
+        return 0;
+    }else{
+        return 1;
+    }
+}
+sub direction_valid{
+    my $direction = shift;
+    if ($direction !~ /[+]|[-]/) { #check direction - can only be either positive or negative. 
+        return 0;    
+    }else{
+        return 1;
+    }
+}
+sub description_valid{
+    my $description = shift;
+    if ($description =~ /'|\\|"|\,/) { #check description for errors (invalid characters).
+        return 0;
+    }else{
+        return 1;
+    } 
+}
+
+
+1;
