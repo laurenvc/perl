@@ -1,0 +1,199 @@
+#!/usr/bin/perl
+#Program for Part 3, BIF724 Assignment 1: This program allows the user to upload a file to the RE1 Gene Database after validation.
+#Lauren Caldwell, 023846157
+#Due Feb 22 2016
+# I declare that the attached assignment is wholly my own work in accordance with
+# Seneca Academic Policy. No part of this assignment has been copied manually or
+# electronically from any other source (including web sites) or distributed to other students.
+# Name:Lauren Caldwell
+# ID:023846157
+
+use strict;
+use warnings;
+use CGI qw/:standard/;
+use DBI;
+require 'lauren_a1_lib.pl';#make sure it can find this 
+require '/home/bif724_161a04/.secret'; #holds login password for database account
+use CGI::Carp qw/fatalsToBrowser warningsToBrowser/;  
+#warningsToBrowser(1); #warnings appear in source code of html, so must view page source to see them.
+
+my $pswd = get_pswd();
+
+my $filename;
+my $accepted_filename;
+my $upfh;
+my $new_file;
+my $line_counter = 1;
+my $errors_in_line_counter = 0;
+my @file_errors = ();
+my $error_value = 0;
+
+#Hash table for positions.
+my %allowed_positions = (
+    "3'" => '3\'',
+    "5'" => '5\'',
+    "exon" => 'exon',
+    "EXON" => 'exon',
+    "intron" => 'intron',
+    "INTRON" => 'intron',
+    "exon+" => 'exon+',
+    "EXON+" => 'exon+',
+    "intron+" => 'intron+',
+    "INTRON+" => 'intron+'
+);
+
+
+if (param('name_of_file')) {
+    $accepted_filename = param('name_of_file');
+    $error_value = 0; #resetting the counter values and array that holds errors once a file is uploaded to prevent errors
+    @file_errors = ();
+    $line_counter = 1;
+    $errors_in_line_counter = 0;
+    
+    if ($accepted_filename !~ /(([A-z|\-|\_|0-9]+)([\.]{1}[c][s][v]))/) {
+        #if filename is not valid reprint form as well as error message. 
+        print "Content-type: text/html\n\n";
+        print html_top_special("RE1 Database File Uploader", "RE1 Target Gene Data: File Uploader", "a1_button_css.css");
+        print button_printer();
+        print print_instructions_upload();
+        print filename_error();
+        print file_form();
+    }else{
+        $upfh = upload('name_of_file');
+        my @lines_in_file = <$upfh>;
+        foreach (@lines_in_file) {
+            my $current_line = $_;
+            my @all_values = split(",", $current_line);
+            #split current line at commas. This works because commas are forbidden in the description and wouldn't be found in other values anyway.
+            my $temp_re1_id = $all_values[0];
+            my $temp_score = $all_values[1];
+            my $temp_target_id = $all_values[2];
+            my $temp_area = $all_values[3];
+            my $temp_direction = $all_values[4];
+            my $temp_desc = $all_values[5];
+            #RE1_ID:           
+            if (id_valid($temp_re1_id) == 0) { #if the subroutine returns a 0 then there is an error in the re1id so the error counter increases.
+                $errors_in_line_counter++;
+            }
+            #Score:
+            if (score_valid($temp_score) == 0) { #Same as for re1id.
+                $errors_in_line_counter++;
+            }
+            #Target ID:
+            if (target_valid($temp_target_id) == 0) {
+                $errors_in_line_counter++;
+            }
+            #Relative position:
+            if (exists $allowed_positions{$temp_area}) { #check if position is in the hash table. If not, it is not allowed.
+                $temp_area = $allowed_positions{$temp_area}; 
+            }else{
+                $errors_in_line_counter++;
+            }
+            #Direction:
+            if (direction_valid($temp_direction) == 0) {
+                $errors_in_line_counter++;
+            }
+            #Description:
+            if (description_valid($temp_desc) == 0) {
+                $errors_in_line_counter++;
+            }
+            #crosscheck species in target id and re1id:
+            unless (($temp_re1_id =~ /([c][h][i][c][k][e][n])/ && $temp_target_id =~ /([G][A][L][G])/) || ($temp_re1_id =~ /([o][p][o][s][s][u][m])/ && $temp_target_id =~ /([M][O][D][G])/) || ($temp_re1_id =~ /([r][a][t])/ && $temp_target_id =~ /([R][N][O][G])/) || ($temp_re1_id =~ /([x][e][n][o][p][u][s])/ && $temp_target_id =~ /([X][E][T][G])/) || ($temp_re1_id =~ /([h][u][m][a][n])/ && $temp_target_id =~ /(^[E][N][S][G])[0-9]/)) {
+                $errors_in_line_counter++;
+            }
+            #check if re1_id is already in database. 
+            my $dbh = DBI->connect("DBI:mysql:host=db-mysql;database=bif724_161a04", "bif724_161a04", $pswd) or die "Problem Connecting" . DBI->errstr;
+            my $sql = "select * from a1_data where re1_id='$temp_re1_id';";
+            my $sth = $dbh->prepare($sql) or die "problem with prepare" . DBI->errstr;
+            my $test_rows = $sth->execute(); #must use prepare to prevent SQL INJECTION
+            $dbh->disconnect() or die "problem disconnecting" . DBI->errstr;
+            if ($test_rows == 1) {
+            #if this sql command produces anything, re1_id is already in database.
+                $errors_in_line_counter++;
+            }
+            if ($errors_in_line_counter > 0) {
+                push @file_errors, "Errors in line $line_counter in file $accepted_filename. Could not add this line to database: $current_line <br>";
+            }else{
+                #push line to database.#error list comes after all lines are processed and sent.
+                my $dbh = DBI->connect("DBI:mysql:host=db-mysql;database=bif724_161a04", "bif724_161a04", $pswd) or die "Problem Connecting" . DBI->errstr;
+                my $sql = "insert into a1_data values (?,?,?,?,?,?);"; #build SQL command to insert
+                my $sth = $dbh->prepare($sql) or die "problem with prepare" . DBI->errstr;
+                my $rows = $sth->execute($temp_re1_id, $temp_score, $temp_target_id, $temp_area, $temp_direction, $temp_desc); #must use prepare to prevent SQL INJECTION  
+                #$rows returns an int, the num of rows given
+                $dbh->disconnect() or die "problem disconnecting" . DBI->errstr;
+                #use the return value of the do function to see if query worked - will return number of rows affected
+                if ($rows == 0) {
+                    push @file_errors, "Line $line_counter could not be added to database."; 
+                }
+            }
+            $line_counter++; #increase line counter.
+            $errors_in_line_counter = 0; #reset error counter.
+        }
+        #If there are errors in the array, print each one and then print the form again, then reset the errors array to be empty. 
+        if (@file_errors) {
+            print "Content-type: text/html\n\n";
+            print html_top_special("RE1 Database File Uploader", "RE1 Target Gene Data: File Uploader", "a1_button_css.css");
+            print button_printer();
+            print print_instructions_upload();      
+            foreach (@file_errors) {
+                $error_value = $_;
+                print error_printer(); 
+            }
+            print file_form();  
+            @file_errors=();        
+        }else{ #If there were no errors then go to view page.
+            print "Location: https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_view.cgi?\n\n"; #this won't work if you already used 'content-type etc'
+        }
+    }
+}else{ #If nothing has been selected yet them just print the page.
+    print "Content-type: text/html\n\n";
+    print html_top_special("RE1 Database File Uploader", "RE1 Target Gene Data: File Uploader", "a1_button_css.css");
+    print button_printer();
+    print print_instructions_upload();  
+    print file_form();
+}
+print html_bottom();
+
+###subroutines###
+
+#prints the form.
+sub file_form{
+    return<<FORM;
+<div id="wrapper" style="text-align:center; margin-bottom:10px">    
+    <table style "font: 100% 'verdana'">
+    <form action="$0" method="post" enctype="multipart/form-data">
+        <input type="file" name="name_of_file" value="$filename" style="font: 100% 'verdana'"><br><br>
+        <input type ="submit" value="Submit">
+    </form>
+    </table>
+
+</div>
+FORM
+}
+
+#prints error for invalid filename.
+sub filename_error{
+    return<<FILENAME;
+    <p style="font: bold 100% 'verdana'"><font color=red>Error: filename is not valid.</font></p>
+FILENAME
+}
+
+#prints instructions.
+sub print_instructions_upload{
+    return<<INSTRUCTIONS;
+    <div style="text-align:center; font: 100% 'verdana'">
+        <p> This page allows you to upload a file containing data which will be processed and added to the RE1 database. </p>
+        <p> The file must be in .csv format. The data in the file will be validated line by line.</p>
+        <p> Any lines that contain invalid data will not be added and will generate an error message. Line with valid data will be added immediately. </p>
+        
+    </div>
+INSTRUCTIONS
+}
+
+#prints errors for individual lines.
+sub error_printer{
+    return<<ERRORS;
+    <p style="font: bold 100% 'verdana'"><font color=red> $error_value </font></p>
+ERRORS
+}
+
