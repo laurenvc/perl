@@ -1,0 +1,89 @@
+#!/usr/bin/perl
+#Program for Part 2 of Assignment 1 for BIF 724. It connects to a database and executes queries (to fetch and display data for RE1 genes).
+#Lauren Caldwell, 023846157
+#Due Feb 22 2016
+# I declare that the attached assignment is wholly my own work in accordance with
+# Seneca Academic Policy. No part of this assignment has been copied manually or
+# electronically from any other source (including web sites) or distributed to other students.
+# Name:Lauren Caldwell
+# ID:023846157
+
+use strict;
+use warnings;
+use DBI;
+use CGI qw/:standard/;
+use CGI::Carp qw/fatalsToBrowser warningsToBrowser/; 
+#warningsToBrowser(1); #warnings appear in source code of html, so must view page source to see them.
+
+require 'lauren_a1_lib.pl';#make sure it can find this
+require '/home/bif724_161a04/.secret'; #holds login password for database account
+my $pswd = get_pswd();
+my $sql_command;
+my $re1_getter = "sort=re1id";
+my $score_getter = "sort=score";
+my $target_getter = "sort=targetid";
+
+print "Content-type: text/html\n\n";
+print html_top_special("RE1 Database", "RE1 Target Gene Data: Genetic Data Display", "a1_table_css.css");
+print button_printer(); #prints the subroutine for the 3 buttons
+
+my $parameter;
+#checks for parameters (ie if the page has been reloaded by clicking one of the 3 table headers that reloads and re-sorts the page)
+if (param()) { 
+    if (param('sort') eq "re1id") {
+        $sql_command = "select * from a1_data order by re1_id;";
+    }elsif (param('sort') eq "score") {
+        $sql_command = "select * from a1_data order by score;";
+    }elsif (param('sort') eq "target") {
+        $sql_command = "select * from a1_data order by gene_id;";
+    }else{
+        #In case someone tries to enter invalid queries an error message will print.
+        #Anything other than the 3 choices above will simply generate this error message instead of causing problems with the database. 
+        print html_top_special("RE1 Database", "ERROR: USELESS QUERY", "a1_table_css.css");
+        exit;
+    }
+}else{
+    $sql_command = "select * from a1_data;";
+}
+print instructions_printer_view();
+#connect to database and execute commands
+my $database_connection = DBI->connect("DBI:mysql:host=db-mysql;database=bif724_161a04", "bif724_161a04", $pswd) or die "Problem connecting to RE1 database." . DBI->errstr;
+my $prepared_command = $database_connection->prepare($sql_command) or die "Error in data preparation." . DBI->errstr;
+my $sql_task = $prepared_command->execute() or die "Error with execute." . DBI->errstr;
+
+#print the top of the table (with links for RE1 ID, Score, and Target ID)
+print <<T_TOP;
+    <form action="$0" method="post">
+    <table border="3" cellspacing="1" cellpadding="5" width="100%">
+            <tr><th><a href="https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_view.cgi?sort=re1id">RE1 ID</a></th><th><a href="https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_view.cgi?sort=score">Score</a></th><th><a href="https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_view.cgi?sort=target">Target Gene ID</a></th><th>Position of RE1 Relative to Target Gene</th><th>Strand Sense (+ or -)</th><th>Description</th></tr>
+T_TOP
+
+#print each line, with the Target ID cells each containing a link to the ENSEMBL page of their ID
+if ($sql_task != 0) { #if execute function returns greater than 0, something happened
+    while (my @row = $prepared_command->fetchrow_array) { #print rows of data. MUST be fetchrow_array
+        my $gene_line = "http://uswest.ensembl.org/Gene/Summary?db=core;g=$row[2]";
+        print <<TABLE;
+        <tr><td>$row[0]</td><td>$row[1]</td><td><a href=$gene_line>$row[2]</a></td><td>$row[3]</td><td>$row[4]</td><td>$row[5]</td><tr>
+TABLE
+    }
+} else { #print this message if no data is found. 
+    print "<tr colspan='3'><td>no records found</td></tr>";
+}
+
+print "</table>"; #End the table and the form. 
+print "</form><br>";
+print button_printer(); #Print the buttons again at the bottom.
+
+$database_connection->disconnect() or die "Error disconnecting from RE1 database." . DBI->errstr; #end database connection. 
+html_bottom();
+
+#This sub prints the instructions for the page.
+sub instructions_printer_view{
+    return<<INSTRUCTIONS;
+    <div style="text-align:center; font: 100% 'verdana'">
+        <p> This is a table of all of the data in the RE1 Target Gene Database. </p>
+        <p> To view the ENSEMBL database page for each target gene ID, click on the target gene ID. </p>
+        <p> To view the data sorted by either RE1 ID, Score, or Target Gene ID, click on the term in the header of the table. </p>
+    </div>
+INSTRUCTIONS
+}
