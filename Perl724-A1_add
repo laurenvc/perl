@@ -1,0 +1,167 @@
+#!/usr/bin/perl
+#Program for Part 1 of BIF 724 Assigment 1: This program creates a data entry form and processes the data.
+#Lauren Caldwell, 023846157
+#Due Feb 22 2016
+# I declare that the attached assignment is wholly my own work in accordance with
+# Seneca Academic Policy. No part of this assignment has been copied manually or
+# electronically from any other source (including web sites) or distributed to other students.
+# Name:Lauren Caldwell
+# ID:023846157
+
+use strict;
+use warnings;
+use CGI qw/:standard/;
+use DBI;
+use CGI::Carp qw/fatalsToBrowser warningsToBrowser/; 
+#warningsToBrowser(1); #warnings appear in source code of html, so must view page source to see them.
+
+require 'lauren_a1_lib.pl';#make sure it can find this
+require '/home/bif724_161a04/.secret'; #holds login password for database account
+my $dbh;
+my $pswd = get_pswd();
+my @errors_array;
+my $current_error;
+
+#hash table of allowed positions for the positions field.
+my %allowed_positions = (
+    "3'" => '3\'',
+    "5'" => '5\'',
+    "exon" => 'exon',
+    "EXON" => 'exon',
+    "intron" => 'intron',
+    "INTRON" => 'intron',
+    "exon+" => 'exon+',
+    "EXON+" => 'exon+',
+    "intron+" => 'intron+',
+    "INTRON+" => 'intron+'
+);
+
+if (param()) {       #if errors, redisplay form with all values, and print errors in red for each error  #param() returns array of field names - 
+    my $re1_id = param("re1_id"); #must match name of field
+    my $score = param("score");
+    my $target_gene_id = param("target");
+    my $relative_position = param("position");
+    my $direction = param("direction");
+    my $description = param("description");
+    my @errors_array;
+    #Validation checks using subs: 
+    if (id_valid($re1_id) == 0){
+        push @errors_array, "Error: RE1 ID is not formatted correctly.";
+    }
+    if (score_valid($score) == 0) { #check score for errors
+        push @errors_array, "Error: Score is not formatted correctly.";
+    }
+    if (score_allowed($score) == 0) {
+        push @errors_array, "Error: Score value is outside of allowed values.";
+    }
+    if (target_valid($target_gene_id) == 0){
+        push @errors_array, "Error: Target gene ID is not formatted correctly.";
+    }
+    if (exists $allowed_positions{$relative_position}) { #check relative position for errors
+        $relative_position = $allowed_positions{$relative_position}; #should overwrite the relative position to be either intron, intron+, exon, or exon+, instead of messing around with capitals.
+    }else{
+        push @errors_array, "Error: RE1 relative position is not valid.";
+    }
+    if (direction_valid($direction) == 0) { #check direction
+        push @errors_array, "Error: Must select a value for Strand.";    
+    }
+    if (description_valid($description) == 0){ 
+        push @errors_array, "Error: Invalid characters in description.";
+    }
+    #cross check the target gene id with the re1 id:
+    unless (($re1_id =~ /([c][h][i][c][k][e][n])/ && $target_gene_id =~ /([G][A][L][G])/) || ($re1_id =~ /([o][p][o][s][s][u][m])/ && $target_gene_id =~ /([M][O][D][G])/) || ($re1_id =~ /([r][a][t])/ && $target_gene_id =~ /([R][N][O][G])/) || ($re1_id =~ /([x][e][n][o][p][u][s])/ && $target_gene_id =~ /([X][E][T][G])/) || ($re1_id =~ /([h][u][m][a][n])/ && $target_gene_id =~ /(^[E][N][S][G])[0-9]/)) {
+        push @errors_array, "Error: RE1 ID and target gene ID have mismatched species.";
+    }
+    my $dbh = DBI->connect("DBI:mysql:host=db-mysql;database=bif724_161a04", "bif724_161a04", $pswd) or die "Problem Connecting" . DBI->errstr;
+    my $sql = "select * from a1_data where re1_id='$re1_id'";
+    my $sth = $dbh->prepare($sql) or die "problem with prepare" . DBI->errstr;
+    my $test_rows = $sth->execute(); #must use prepare to prevent SQL INJECTION
+    if ($test_rows == 1) {
+        #if this sql command produces anything, generate error message saying it is already in database
+        push @errors_array, "Error: This RE1 ID is already in the database.";
+    }
+    if (@errors_array) { #print any errors, reprint form.  
+        print "Content-type: text/html\n\n";
+        print html_top_special("RE1 Gene Data Entry Form", "RE1 Target Gene Data: Data Entry Form", "a1_button_css.css");
+        print button_printer();
+        foreach (@errors_array){
+            $current_error = $_;
+            print error_printer(); 
+        }
+        print a1_form();
+    }else{ #if no errors, AND it's not already in the database, then you can utilize reults.
+        my $dbh = DBI->connect("DBI:mysql:host=db-mysql;database=bif724_161a04", "bif724_161a04", $pswd) or die "Problem Connecting" . DBI->errstr;
+        my $sql = "insert into a1_data values (?,?,?,?,?,?);"; #build SQL command to insert
+        my $sth = $dbh->prepare($sql) or die "problem with prepare" . DBI->errstr;
+        my $rows = $sth->execute($re1_id, $score, $target_gene_id, $relative_position, $direction, $description); #must use prepare to prevent SQL INJECTION  
+        #$rows returns an int, the num of rows given
+        $dbh->disconnect() or die "problem disconnecting" . DBI->errstr;
+        # use the return value of the do function to see if query worked - will return number of rows affected
+        if ($rows != 0) {
+        print "Location: https://zenit.senecac.on.ca/~bif724_161a04/assignment1/lauren_a1_view.cgi?\n\n";
+        } else {
+            print html_top("RE1 Database", "RE1 Database - ERROR");
+            print button_printer();
+            print html_fail();
+        }
+    }
+} else { #form not yet submitted, so reprint it
+    print "Content-type: text/html\n\n";
+    print html_top_special("RE1 Gene Data Entry Form", "RE1 Target Gene Data: Data Entry Form", "a1_button_css.css");
+    print button_printer();
+    print a1_form();
+}
+
+print html_bottom();
+
+###subroutines###
+
+#This subroutine prints the form and the instructions for the page. 
+sub a1_form{
+    my $re1_id = param('re1_id'); #text box for re1 ID
+    my $score = param('score'); #text box for score
+    my $target_gene_id = param('target'); #text box target gene id
+    my $relative_position = param('position'); #text box for relative position of re1 to target gene
+    my $direction = param('direction'); #parameter for strand 
+    my $pos_strand = $direction eq '+'?"checked":"";  #radio buttons for strand of target gene
+    my $neg_strand = $direction eq '-'?"checked":"";  # " " 
+    my $description = param('description'); #text area for description, can be null but others CANNOT be null
+    
+    return<<DATAFORM
+<div style="text-align:center"> 
+    <form action="$0" method="post">           
+    <table style="float:left; text-align:left; margin-left:50px; margin-right:50px; font: bold 100% 'verdana'" border="0" bgcolor="#CCFFFF">
+        <tr><td>RE1 ID:</td><tr><td><input type="text" name="re1_id" value="$re1_id" placeholder="Enter RE1 ID (required)" style="width:500px; height:40px; font-family:verdana"></tr></td></tr><br>
+        <tr><td>SCORE:</td><tr><td><input type="text" name="score" value="$score" placeholder="Enter score (required)" style="width:500px; height:40px; font-family:verdana"></tr></td></tr<br>
+        <tr><td>TARGET GENE ID:</td><tr><td><input type="text" name="target" value="$target_gene_id" placeholder="Enter target gene ID (required)" style="width:500px; height:40px; font-family:verdana"></tr></td></tr><br>
+        <tr><td>RELATIVE POSITION OF RE1 TO TARGET GENE:</td><tr><td><input type="text" name="position" value="$relative_position" placeholder="Enter RE1 relative position (required)" style="width:500px; height:40px; font-family:verdana"></tr></td></tr<br>
+        <tr><td>DESCRIPTION:</td></tr><td><textarea name="description" placeholder="Enter description (optional)" style="width:500px; height:200px; font-family:verdana">$description</textarea></tr></td></tr>    
+        <tr><td>STRAND OF TARGET GENE:</td>
+        
+            <tr><td>Positive (+):<input type="radio" name="direction" value="+" style="width:30px; height:20px; vertical-align:middle" $pos_strand></td></tr>
+            <tr><td>Negative (-):<input type="radio" name="direction" value="-" style="width:30px; height:20px; vertical-align:middle" $neg_strand></td></tr>
+        </tr>
+        <tr><td><input type="submit" value="Submit" style="height:100px; width:100px; margin-left:200px"></td><td></td></tr>
+    </table>
+    </form>
+</div>
+
+<div style="text-align:center; margin-right:50px">
+    <p style="font: bold 100% 'verdana'">RE1 Gene Database: How to Add Data</p>
+    <p style="font: 100% 'verdana'">To add data to the RE1 gene database, simply fill out the form to the left and click 'Submit'. All fields are required, with the exception of 'Description'. Successfully adding data will redirect you to the view page. </p>
+    <p style="font: 100% 'verdana'">The RE1 ID must be in the format 'species'_'42'_'database version number'_'region name'_'position on region'_'strand'. The species may be one of rat, opossum, human, xenopus, or chicken.  The version number may be 1 or 2 digits with an optional lowercase letter. The region name may be a chromosome number or W, X, Y, Z, or 'scaffold_' with up to 7 digits after the '_'. Duplicate RE1 IDs are not permitted.</p>
+    <p style="font: 100% 'verdana'">The score must be in the format 0.9xxx or 1. Scores above 1 or below 0.91 are not permitted. </p>
+    <p style="font: 100% 'verdana'">The target gene ID must begin with 'ENS' followed by either a G or three letters referring to species, then 11 digits.</p>
+    <p style="font: 100% 'verdana'">The relative position of RE1 to the target gene may be any of the following: 3', 5', exon/EXON/exon+/EXON+, intron/INTRON/intron+/INTRON+.
+    <p style="font: 100% 'verdana'">The strand value of the target gene must be one of the available options, positive or negative.</p>
+    <p style="font: 100% 'verdana'">The description may be left blank but cannot include the following characters: " ' , / \\</p>
+</div>
+DATAFORM
+}
+
+#Prints the errors generated by the validation subroutines.
+sub error_printer{
+    return<<ERROR;
+    <p style="font: bold 100% 'verdana'"><font color=red> $current_error </font></p>
+ERROR
+}
