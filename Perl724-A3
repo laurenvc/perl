@@ -1,0 +1,236 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use CGI qw/:standard/;
+use CGI::Carp qw/fatalsToBrowser warningsToBrowser/;
+use lib '/home/john.samuel/src/ensembl/modules';
+use Bio::EnsEMBL::Registry;
+use Bio::Graphics;
+use Bio::SeqFeature::Generic;
+my $registry = 'Bio::EnsEMBL::Registry'; 
+$registry->load_registry_from_db(
+    -host => 'ensembldb.ensembl.org',
+    -user => 'anonymous'
+);
+#warningsToBrowser(1);
+
+#This program is for A3 of BIF724.
+#The purpose of this program is to provide a gene browser for Drosophila melanogaster, the common fruitfly.
+#It allows the user to select a chromosome and a region, and then displays the genes in that region in a chart and as an image.
+
+# I declare that the attached assignment is wholly my own work in accordance with
+# Seneca Academic Policy. No part of this assignment has been copied manually or
+# electronically from any other source (including web sites) or distributed to other students.
+# Name:Lauren Caldwell
+# ID:023846157
+
+my ($startpos, $endpos, $chromosome, @errors);
+
+if (param()){
+    #If parameters have been input, process them. 
+    my $startpos = param('box 1');
+    my $endpos = param('box 2');
+    my $chromosome = param('Chromosome');
+    
+    #slice adaptor object to check end of chromosome:
+    my $slice_adaptor_object = $registry->get_adaptor( 'drosophila melanogaster', 'Core', 'Slice' );
+    my $slice_object = $slice_adaptor_object->fetch_by_region('chromosome', $chromosome);
+    my $end = $slice_object->end();
+    
+    #validate input positions:
+    unless ($startpos =~ /^[0-9]+$/) {
+        push @errors, "Error: Start position must be an integer!\n";
+    }
+    unless ($endpos =~ /^[0-9]+$/) {
+        push @errors, "Error: End position must be an integer!\n";
+    }
+    unless ($startpos >= 1) {
+        push @errors, "Error: Start position must be greater than or equal to 1.\n";
+    }
+    unless ($endpos <= $end){
+        push @errors, "Error: End position must be within the length of the chromosome.\n";
+    }
+    unless ($startpos < $endpos){
+        push @errors, "Error: Start position must be less than end position!\n";
+    }
+    my $query_size = $endpos - $startpos;
+    if (($query_size) > 100000000) {
+        push @errors, "Error: These positions are too far apart.\n";
+    }
+    if (($query_size) < 1000) {
+        push @errors, "Error: These positions are too close together.\n";
+    }
+    #If there are errors, then reprint the form.
+    if (@errors) {
+        print "Content-type: text/html\n\n";
+        print html_top("Fruitfly Genes", "Fruitfly Gene Browser");
+        foreach (@errors) {
+            print "<font color='red'>$_</font><br>";
+        }
+        print input_form();
+    }else{
+        #If the parameters are valid, continue to output:
+        print "Content-type: text/html\n\n";
+        print html_top("Fruitfly Genes for Chromosome $chromosome, positions $startpos to $endpos", "Fruitfly Gene Browser Results");
+        my $final_slice_object = $slice_adaptor_object->fetch_by_region('chromosome', $chromosome, $startpos, $endpos);
+        my $gene_ref_test = $final_slice_object->get_all_Genes();
+        my @genes_test = @$gene_ref_test; 
+        unless (@genes_test) {
+            #In case there are no genes in this region, print an error message.
+            print "There are no genes in this region!<br>Query region: <i>Drosophila melanogaster</i> chromosome $chromosome, bases $startpos to $endpos. To return to the previous page, click <a href=http://zenit.senecac.on.ca/~bif724_161a04/assign3/lauren_a3.cgi>here</a>.<br><br>";
+        }else{
+            #create panel for image of genes
+            my $expanded_query = $query_size + (0.5 * $query_size);
+            my $gene_panel = Bio::Graphics::Panel->new(-length => $expanded_query, -width  => 1000, -pad_left=>50, -pad_right=>50, -start=>$startpos,-end=>$endpos);
+            my $chart_bar = Bio::SeqFeature::Generic->new(-start => $startpos,-end => $endpos);
+            $gene_panel->add_track($chart_bar, -glyph => 'arrow', -tick => 2, -fgcolor => 'black', -double  => 1);
+            
+            print "Showing all genes in this query region: <i>Drosophila melanogaster</i> chromosome $chromosome, bases $startpos to $endpos. To return to the previous page, click <a href=http://zenit.senecac.on.ca/~bif724_161a04/assign3/lauren_a3.cgi>here</a>.<br><br>";
+            print "<table border='1'>";
+            print "<tr><td>Gene ID</td><td>Start Position</td><td>End Position</td><td>Strand</td><td>Length</td><td>Description</td><td>External Name</td><td>Gene Type</td><td>Status</td><td>Number of Transcripts</td></tr>";
+            foreach my $gene (@{$final_slice_object->get_all_Genes()}) {
+            #For ALL GENES in the given region, make a table showing the following:
+                #gene ID, including a link to ENSEMBL
+                my $gene_stable_id = $gene->stable_id();
+                print "<td><a href= http://uswest.ensembl.org/Gene/Summary?db=core;g=$gene_stable_id target='_blank'>$gene_stable_id</a></td>";
+                #start position
+                my $gene_start = $gene->seq_region_start();
+                print "<td>$gene_start</td>";
+                #end position
+                my $gene_end = $gene->seq_region_end();
+                print "<td>$gene_end</td>";
+                #strand
+                my $gene_strand = $gene->strand();
+                my $gene_strand_symbol;
+                if ($gene_strand == '1') {
+                    $gene_strand_symbol = "+";
+                }else{
+                    $gene_strand_symbol = "-";
+                }
+                print "<td>$gene_strand_symbol</td>";
+                #length
+                my $gene_length = $gene->length();
+                print "<td>$gene_length</td>";
+                #description
+                my $gene_desc = $gene->description();
+                print "<td>$gene_desc</td>";
+                #external name
+                my $gene_exname = $gene->external_name();
+                print "<td>$gene_exname</td>";
+                #gene type/biotype
+                my $gene_type = $gene->biotype();
+                print "<td>$gene_type</td>";
+                #set font colour according to biotype
+                my $font_colour;
+                if ($gene_type eq "protein_coding") {
+                    $font_colour = "red";
+                }else{
+                    $font_colour = "black";
+                }
+                #status of gene
+                my $gene_status = $gene->status();
+                print "<td>$gene_status</td>";
+                #number of transcripts for that gene
+                my @exons = @{ $gene->get_all_Transcripts }; #as specified by API -> this works nicely
+                my $gene_exons = scalar @exons;
+                print "<td>$gene_exons</td>";
+                print "</tr>";
+                
+                #create a new image track
+                my $description_variable = "$gene_stable_id, ($gene_start - $gene_end)";
+                my $image_track = $gene_panel->add_track(-glyph => 'transcript2', -stranded => 1, -label => 1, -fontcolor => $font_colour, -bgcolor => 'green', -description => $gene_type);
+                #send track to image 
+                my $feature_for_image = Bio::SeqFeature::Generic->new(-display_name => $description_variable, -start => $gene_start, -end => $gene_end, -strand => $gene_strand); 
+                $image_track->add_feature($feature_for_image);
+            }
+        
+        print "</table>";
+        
+        #create image file
+        open (my $fh, '>','fruitfly_genes.png') or die "Image file could not be created!\n";
+        print $fh $gene_panel->png;
+        close $fh;
+        print "<br><br><img src='fruitfly_genes.png' alt='Fruitfly Genes'>";
+        print "<br><br>To return to the previous page, click <a href=http://zenit.senecac.on.ca/~bif724_161a04/assign3/lauren_a3.cgi>here.</a>";
+        }
+        print html_bottom();
+    }
+}else{
+    #If no params given, just print the form. 
+    print "Content-type: text/html\n\n";
+    print html_top("Fruitfly Genes", "Fruitfly Gene Browser");
+    print input_form();
+}
+
+print html_bottom();
+
+sub input_form{
+    #subroutine to print input form and instructions while maintaining previously chosen variables.
+    my $startpos;
+    my $endpos;
+    if (param()) {
+        $startpos = param('box 1');
+        $endpos = param('box 2');
+    }else{
+        $startpos = "14317000";
+        $endpos = "14409000";
+    }
+    my $chromosome = param('Chromosome');
+return<<FORM
+<div>
+    <p>This page allows you to browse the genome of <i>Drosophila melanogaster</i>, the common fruitfly.
+    The fruitfly has seven chromosomes: 2L, 2R, 3L, 3R, 4, X, and Y. 
+    Choose a chromosome, enter a start and end position, and then click submit to view the genes in the region.
+    The data is based on the <a href="http://useast.ensembl.org/Drosophila_melanogaster/Location/Genome" target="_blank">ENSEMBL database</a>
+    information for <i>Drosophila</i>.  Rememember that some regions may have no genes, such as the region between positions 10000 and 20000 on chromosome 3R!
+    The start and end positions must be no closer than 1000 base pairs and no further apart than 100000000 base pairs.</p>
+    <p>Here are some example regions you may want to try viewing. They each have at least three different genes.</p>
+    <table border="1" style="width:50%">
+        <tr><td>Region #</td><td>Chromosome</td><td>Start Position</td><td>End Position</td></tr>
+        <tr><td>Region 1</td><td>Chromosome 2L</td><td>14317000</td><td>14409000</td></tr>
+        <tr><td>Region 2</td><td>Chromosome 3R</td><td>800000</td><td>3500000</td></tr>
+        <tr><td>Region 3</td><td>Chromosome X</td><td>4030000</td><td>4212000</td></tr>
+    </table>
+</div>
+<div style="">
+    <form action="$0" method="post">
+    <table style="font: bold 100% 'verdana'">
+        <tr><td>Chromosome</td><td><select name = "Chromosome" value = "$chromosome" style="width:100px">
+            <option value="2L">2L</option>
+            <option value="2R">2R</option>
+            <option value="3L">3L</option>
+            <option value="3R">3R</option>
+            <option value="4">4</option>
+            <option value="X">X</option>
+            <option value="Y">Y</option>
+        </select></td></tr><br>
+        <tr><td>Start Position</td><td><input type = "text" name = "box 1" value = "$startpos" placeholder = "300000" style="width:200px; height:30px; font: 100% 'verdana'"></td></tr><br>
+        <tr><td>End Position</td><td><input type = 'text' name = "box 2" value = "$endpos" placeholder = "350000" style="width:200px; height:30px; font: 100% 'verdana'"></td></tr><br>
+    </table>
+    <input type="submit" value="Submit" style="width:200px; height:50px; font: bold 100% 'verdana'">
+</div>
+
+FORM
+}
+
+sub html_top {
+    my $name = shift;
+    my $header_of_page = shift;
+    return<<TOP;
+    <!DOCTYPE html>
+<html>
+    <head>
+        <title>$name</title>
+    </head>
+        <h1 style="text-align:center">$header_of_page</h1>
+    <body>
+TOP
+}
+
+sub html_bottom{
+    return<<BOTTOM;
+    </body>
+</html>
+BOTTOM
+}
