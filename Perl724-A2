@@ -1,0 +1,101 @@
+#!usr/bin/perl
+
+#The purpose of this program is to access specified GenBank files and pull specified
+#information (species, gene, translation information)
+#from them to provide useful output files for the user.
+
+# I declare that the attached assignment is wholly my own work in accordance with
+# Seneca Academic Policy. No part of this assignment has been copied manually or
+# electronically from any other source (including web sites) or distributed to other students.
+# Name: Lauren Caldwell
+# ID: 023846157
+
+use strict;
+use warnings;
+
+use Bio::DB::GenBank;
+#These are used but don't need to be named specifically:
+#use Bio::Species;
+#use Bio::Seq;
+#use Bio::SeqFeatureI;
+#use Bio::SeqIO;
+
+#Error message in case no inputs are provided.
+unless(@ARGV){
+    die "No inputs provided. A filename and a gene name are required.\n";
+}
+
+#Set up variables:They can be shifted out of the default input array ARGV:
+my $filename = shift;
+my $gene = shift;
+my $biofilename = "dna_lauren_$gene.fa";
+my $protfilename = "aa_lauren_$gene.fa";
+my $format = "fasta";
+
+#These two object instantiations create files in the same directory the program is run from:
+my $biofile = Bio::SeqIO->new(
+                            -file   => ">$biofilename",
+                            -format => "$format",
+                            );
+my $protfile = Bio::SeqIO->new(
+                            -file   => ">$protfilename",
+                            -format => "$format",
+                            );
+
+#open an array of the inputs from the file to contain the genbank names:
+my @names_array;
+open (my $fh, "<", $filename) or die "Could not open $filename.\n";
+while (my $row = <$fh>) {
+    push @names_array, $row;
+}
+close $fh;
+
+#Process each ID in the array, one at a time:
+foreach (@names_array) {
+    my $currentname = $_;
+    my $gb = Bio::DB::GenBank->new();
+    my $currentsequence = $gb->get_Seq_by_acc($currentname); 
+    #use Bio::Species to get binomial name (must use 'FULL' argument to get full name):
+    my $binomial = $currentsequence->species->binomial('FULL');
+    #replace spaces with underscores
+    $binomial =~ s/ /_/g;
+    
+    #Locate the information the user is looking for by filtering through the data:
+    my $feat;
+    foreach $feat ($currentsequence->get_SeqFeatures()) {
+        my $cds = 'CDS';
+        if ($cds eq $feat->primary_tag() ) {
+            foreach my $tags ($feat->get_tag_values('gene')){
+                if ($tags eq $gene) {
+                    my @translation = $feat->get_tag_values('translation');
+                   
+                    #get DNA information:
+                    my $start = $feat->start;
+                    my $stop = $feat->end;
+                    my $strand = $feat->strand;
+                    my $sequence = $currentsequence->subseq($start, $stop); #assumes strand = 1
+                    my $sequence_object = Bio::Seq->new(-seq => $sequence); #converts to a new Bio::Seq object, since this would be required anyway if the strand turns out to be negative
+                   
+                    if ($strand == -1) { #This is for consideration for strand = -1
+                        my $rev = $sequence_object->revcom();
+                        my $reverse_sequence = $rev->seq();
+                        $sequence = $reverse_sequence; 
+                    }
+                    #create the final Bio::Seq objects
+                    my $final_bioseq_output_dna = Bio::Seq->new(-id => $binomial,
+                                                                -seq => $sequence);
+                    my $final_bioseq_output_aa = Bio::Seq->new(-id => $binomial,
+                                                                -seq => $translation[0]);
+                    #write dna sequence to dna file
+                    $biofile->write_seq($final_bioseq_output_dna);
+                    $protfile->write_seq($final_bioseq_output_aa);
+                }
+            }
+        }
+    }
+}
+#output the file creation, file names, and file locations to the user (outside of foreach loops):
+print "Output files for DNA sequences and amino acid sequences created.\n";
+print "Output files placed in current directory.\n";
+print "File names are $biofilename and $protfilename.\n";
+
